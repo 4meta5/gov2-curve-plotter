@@ -5,15 +5,32 @@ use sp_runtime::{FixedI64, Perbill};
 use std::fs::File;
 use std::io::Write;
 
-/// Returns approval and support curve points for rendering all approval/support together
+#[derive(Clone, Copy)]
+pub enum CurveType {
+    /// Approval is defined as the share of approval vote-weight (i.e. after adjustment for
+    /// conviction) against the total number of vote-weight (for both approval and rejection).
+    Approval,
+    /// Support is the total number of votes in approval (i.e. ignoring any adjustment for
+    /// conviction) compared to the total possible amount of votes that could be made in the system.
+    Support,
+}
+
+pub struct CurveInfo {
+    pub track_id: u16,
+    pub name: String,
+    pub points: Vec<(u32, i32)>,
+}
+
+pub type Curves = Vec<CurveInfo>;
+
+pub(crate) fn plot_curve_comparison(ty: CurveType, curves: Curves) {
+    todo!()
+}
+
 pub(crate) fn plot_track_curves(
     name: String,
     id: u16,
-    // Approval is defined as the share of approval vote-weight (i.e. after adjustment for
-    // conviction) against the total number of vote-weight (for both approval and rejection).
     approval_curve: &Curve,
-    // Support is the total number of votes in approval (i.e. ignoring any adjustment for
-    // conviction) compared to the total possible amount of votes that could be made in the system.
     support_curve: &Curve,
     days: u32,
 ) -> (Vec<(u32, i32)>, Vec<(u32, i32)>) {
@@ -61,32 +78,33 @@ pub(crate) fn plot_track_curves(
         .axis_desc_style(("sans-serif", 15))
         .draw()
         .unwrap();
-    let curve_points = |crv, pts| {
-        (0..=pts).map(move |x| {
-            (
-                x,
-                perbill_to_percent_coordinate(threshold(crv, Perbill::from_rational(x, pts))),
-            )
-        })
-    };
+    let curve_points =
+        |crv, pts| (0..=pts).map(move |x| (x, threshold(crv, Perbill::from_rational(x, pts))));
+    let approval_curve_points = curve_points(approval_curve, hours);
+    let support_curve_points = curve_points(support_curve, hours);
+    write_curve_points_csv(app_points_csv, approval_curve_points.clone().collect());
+    write_curve_points_csv(sup_points_csv, support_curve_points.clone().collect());
+    let rounded_approval_curve =
+        approval_curve_points.map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
+    let rounded_support_curve =
+        support_curve_points.map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
     app_plot
-        .draw_series(LineSeries::new(curve_points(approval_curve, hours), &RED))
+        .draw_series(LineSeries::new(rounded_approval_curve.clone(), &RED))
         .unwrap();
     sup_plot
-        .draw_series(LineSeries::new(curve_points(support_curve, hours), &RED))
+        .draw_series(LineSeries::new(rounded_support_curve.clone(), &RED))
         .unwrap();
-    let approval_curve_points: Vec<(u32, i32)> = curve_points(approval_curve, hours).collect();
-    write_curve_points_csv(app_points_csv, approval_curve_points.clone());
-    let support_curve_points: Vec<(u32, i32)> = curve_points(support_curve, hours).collect();
-    write_curve_points_csv(sup_points_csv, support_curve_points.clone());
-    (approval_curve_points, support_curve_points)
+    (
+        rounded_approval_curve.collect(),
+        rounded_support_curve.collect(),
+    )
 }
 
 /// Write curve points to file
-fn write_curve_points_csv(file: String, points: Vec<(u32, i32)>) {
+fn write_curve_points_csv(file: String, points: Vec<(u32, Perbill)>) {
     let mut file = File::create(file).unwrap();
     for (x, y) in points {
-        file.write_all(format!("{}, {}\n", x, y).as_bytes())
+        file.write_all(format!("{}, {:?}\n", x, y).as_bytes())
             .unwrap();
     }
 }
