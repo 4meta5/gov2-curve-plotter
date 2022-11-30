@@ -2,24 +2,29 @@ use moonbase_runtime::{governance::TracksInfo as MoonbaseTracks, Balance, BlockN
 use pallet_referenda::TracksInfo;
 
 mod curve;
-use curve::{plot_curve, CurveType};
+use curve::*;
 
 fn main() {
+    let (mut approval_curves, mut support_curves) = (Curves::new(), Curves::new());
     for (track_id, track) in <MoonbaseTracks as TracksInfo<Balance, BlockNumber>>::tracks() {
-        let decision_period_days = track.decision_period / DAYS;
-        plot_curve(
-            CurveType::Approval,
+        let (approval_curve_points, support_curve_points) = plot_track_curves(
             track.name.to_string(),
             *track_id,
             &track.min_approval,
-            decision_period_days,
-        );
-        plot_curve(
-            CurveType::Support,
-            track.name.to_string(),
-            *track_id,
             &track.min_support,
-            decision_period_days,
+            track.decision_period / DAYS,
         );
+        approval_curves.push(CurveInfo {
+            track_id: *track_id,
+            name: track.name.to_string(),
+            points: approval_curve_points,
+        });
+        support_curves.push(CurveInfo {
+            track_id: *track_id,
+            name: track.name.to_string(),
+            points: support_curve_points,
+        });
     }
+    plot_curves_comparison(CurveType::Approval, approval_curves);
+    plot_curves_comparison(CurveType::Support, support_curves);
 }

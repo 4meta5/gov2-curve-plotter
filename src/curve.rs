@@ -15,59 +15,145 @@ pub enum CurveType {
     Support,
 }
 
-pub(crate) fn plot_curve(ty: CurveType, name: String, id: u16, curve: &Curve, days: u32) {
-    let (plot_file, points_file) = match ty {
+pub struct CurveInfo {
+    pub track_id: u16,
+    pub name: String,
+    pub points: Vec<(u32, i32)>,
+}
+
+pub type Curves = Vec<CurveInfo>;
+
+fn decision_period(curves: &Curves) -> u32 {
+    let hours = curves[0].points.len();
+    for curve in curves {
+        if curve.points.len() != hours {
+            panic!("Decision Period not constant for all curves");
+        }
+    }
+    hours.try_into().unwrap()
+}
+
+/// Assumes all curves have same decision period
+pub(crate) fn plot_curves_comparison(ty: CurveType, curves: Curves) {
+    let (plot_png, plot_title, y_axis_label) = match ty {
         CurveType::Approval => (
-            format!("plots/{} Approval.png", name),
-            format!("points/{} Approval.csv", name),
+            "plots/Approvals.png",
+            "Approval Requirements",
+            "% of Votes in Favor / All Votes in This Referendum",
         ),
         CurveType::Support => (
-            format!("plots/{} Support.png", name),
-            format!("points/{} Support.csv", name),
+            "plots/Supports.png",
+            "Support Requirements",
+            "% of Votes in This Referendum / Total Possible Turnout",
         ),
     };
-    let grid = BitMapBackend::new(&plot_file, (600, 400)).into_drawing_area();
+    let grid = BitMapBackend::new(&plot_png, (1024, 768)).into_drawing_area();
     grid.fill(&WHITE).unwrap();
-    let hours = 24 * days;
-    let title = match ty {
-        CurveType::Approval => format!("{} Approval, TrackID #{}", name, id),
-        CurveType::Support => format!("{} Support, TrackID #{}", name, id),
-    };
+    let hours = decision_period(&curves);
     let mut plot = ChartBuilder::on(&grid)
-        .caption(&title, ("sans-serif", 30))
+        .caption(&plot_title, ("sans-serif", 30))
+        .margin(5)
+        .set_left_and_bottom_label_area_size(40)
+        .build_cartesian_2d(0..hours, 0..100)
+        .unwrap();
+    plot.configure_mesh()
+        .y_desc(y_axis_label)
+        .x_desc(format!("Hours into {}-Day Decision Period", hours / 24))
+        .axis_desc_style(("sans-serif", 15))
+        .draw()
+        .unwrap();
+    for (i, curve) in curves.iter().enumerate() {
+        let color = Palette99::pick(i).mix(0.9);
+        plot.draw_series(LineSeries::new(curve.points.clone(), color.stroke_width(2)))
+            .unwrap()
+            .label(format!("{}, ID # {}", curve.name, curve.track_id))
+            .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], color.filled()));
+    }
+    plot.configure_series_labels()
+        .position(SeriesLabelPosition::UpperRight)
+        .border_style(&BLACK)
+        .draw()
+        .unwrap();
+}
+
+pub(crate) fn plot_track_curves(
+    name: String,
+    id: u16,
+    approval_curve: &Curve,
+    support_curve: &Curve,
+    days: u32,
+) -> (Vec<(u32, i32)>, Vec<(u32, i32)>) {
+    let (app_plot_png, sup_plot_png, app_points_csv, sup_points_csv) = (
+        format!("plots/{} Approval.png", name),
+        format!("plots/{} Support.png", name),
+        format!("points/{} Approval.csv", name),
+        format!("points/{} Support.csv", name),
+    );
+    let app_grid = BitMapBackend::new(&app_plot_png, (600, 400)).into_drawing_area();
+    app_grid.fill(&WHITE).unwrap();
+    let sup_grid = BitMapBackend::new(&sup_plot_png, (600, 400)).into_drawing_area();
+    sup_grid.fill(&WHITE).unwrap();
+    let hours = 24 * days;
+    let mut app_plot = ChartBuilder::on(&app_grid)
+        .caption(
+            &format!("{} Approval, TrackID #{}", name, id),
+            ("sans-serif", 30),
+        )
         .margin(5)
         .set_left_and_bottom_label_area_size(40)
         .build_cartesian_2d(0..hours + 1, 0..100)
         .unwrap();
-    let y_axis_label = match ty {
-        CurveType::Approval => "% of Votes in Favor / All Votes in This Referendum",
-        CurveType::Support => "% of Votes in This Referendum / Total Possible Turnout",
-    };
+    let mut sup_plot = ChartBuilder::on(&sup_grid)
+        .caption(
+            &format!("{} Support, TrackID #{}", name, id),
+            ("sans-serif", 30),
+        )
+        .margin(5)
+        .set_left_and_bottom_label_area_size(40)
+        .build_cartesian_2d(0..hours + 1, 0..100)
+        .unwrap();
     let x_axis_label = format!("Hours into {}-Day Decision Period", days);
-    plot.configure_mesh()
-        .y_desc(y_axis_label)
+    app_plot
+        .configure_mesh()
+        .y_desc("% of Votes in Favor / All Votes in This Referendum")
+        .x_desc(x_axis_label.clone())
+        .axis_desc_style(("sans-serif", 15))
+        .draw()
+        .unwrap();
+    sup_plot
+        .configure_mesh()
+        .y_desc("% of Votes in This Referendum / Total Possible Turnout")
         .x_desc(x_axis_label)
         .axis_desc_style(("sans-serif", 15))
         .draw()
         .unwrap();
-    let curve_points = |crv, pts| {
-        (0..=pts).map(move |x| {
-            (
-                x,
-                perbill_to_percent_coordinate(threshold(crv, Perbill::from_rational(x, pts))),
-            )
-        })
-    };
-    plot.draw_series(LineSeries::new(curve_points(curve, hours), &RED))
+    let curve_points =
+        |crv, pts| (0..=pts).map(move |x| (x, threshold(crv, Perbill::from_rational(x, pts))));
+    let approval_curve_points = curve_points(approval_curve, hours);
+    let support_curve_points = curve_points(support_curve, hours);
+    write_curve_points_csv(app_points_csv, approval_curve_points.clone().collect());
+    write_curve_points_csv(sup_points_csv, support_curve_points.clone().collect());
+    let rounded_approval_curve =
+        approval_curve_points.map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
+    let rounded_support_curve =
+        support_curve_points.map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
+    app_plot
+        .draw_series(LineSeries::new(rounded_approval_curve.clone(), &RED))
         .unwrap();
-    write_curve_points_csv(points_file, curve_points(curve, hours).collect());
+    sup_plot
+        .draw_series(LineSeries::new(rounded_support_curve.clone(), &RED))
+        .unwrap();
+    (
+        rounded_approval_curve.collect(),
+        rounded_support_curve.collect(),
+    )
 }
 
 /// Write curve points to file
-fn write_curve_points_csv(file: String, points: Vec<(u32, i32)>) {
+fn write_curve_points_csv(file: String, points: Vec<(u32, Perbill)>) {
     let mut file = File::create(file).unwrap();
     for (x, y) in points {
-        file.write_all(format!("{}, {}\n", x, y).as_bytes())
+        file.write_all(format!("{}, {:?}\n", x, y).as_bytes())
             .unwrap();
     }
 }
