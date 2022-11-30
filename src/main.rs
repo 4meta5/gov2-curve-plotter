@@ -25,6 +25,6 @@ fn main() {
             points: support_curve_points,
         });
     }
-    plot_curves_comparison(CurveType::Approval, approval_curves);
-    plot_curves_comparison(CurveType::Support, support_curves);
+    plot_approval_curves(approval_curves);
+    plot_support_curves(support_curves);
 }

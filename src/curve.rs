@@ -23,6 +23,7 @@ pub struct CurveInfo {
 
 pub type Curves = Vec<CurveInfo>;
 
+/// Assumes all curves have same decision period
 fn decision_period(curves: &Curves) -> u32 {
     let hours = curves[0].points.len();
     for curve in curves {
@@ -33,8 +34,15 @@ fn decision_period(curves: &Curves) -> u32 {
     hours.try_into().unwrap()
 }
 
-/// Assumes all curves have same decision period
-pub(crate) fn plot_curves_comparison(ty: CurveType, curves: Curves) {
+pub(crate) fn plot_approval_curves(curves: Curves) {
+    plot_curves_comparison(CurveType::Approval, curves)
+}
+
+pub(crate) fn plot_support_curves(curves: Curves) {
+    plot_curves_comparison(CurveType::Support, curves)
+}
+
+fn plot_curves_comparison(ty: CurveType, curves: Curves) {
     let (plot_png, plot_title, y_axis_label) = match ty {
         CurveType::Approval => (
             "plots/Approvals.png",
@@ -51,15 +59,15 @@ pub(crate) fn plot_curves_comparison(ty: CurveType, curves: Curves) {
     grid.fill(&WHITE).unwrap();
     let hours = decision_period(&curves);
     let mut plot = ChartBuilder::on(&grid)
-        .caption(&plot_title, ("sans-serif", 30))
+        .caption(&plot_title, ("sans-serif", 45))
         .margin(5)
-        .set_left_and_bottom_label_area_size(40)
+        .set_left_and_bottom_label_area_size(60)
         .build_cartesian_2d(0..hours, 0..100)
         .unwrap();
     plot.configure_mesh()
         .y_desc(y_axis_label)
         .x_desc(format!("Hours into {}-Day Decision Period", hours / 24))
-        .axis_desc_style(("sans-serif", 15))
+        .axis_desc_style(("sans-serif", 30))
         .draw()
         .unwrap();
     for (i, curve) in curves.iter().enumerate() {
@@ -89,29 +97,24 @@ pub(crate) fn plot_track_curves(
         format!("points/{} Approval.csv", name),
         format!("points/{} Support.csv", name),
     );
-    let app_grid = BitMapBackend::new(&app_plot_png, (600, 400)).into_drawing_area();
-    app_grid.fill(&WHITE).unwrap();
-    let sup_grid = BitMapBackend::new(&sup_plot_png, (600, 400)).into_drawing_area();
-    sup_grid.fill(&WHITE).unwrap();
+    let make_grid = |file_name| {
+        let grid = BitMapBackend::new(file_name, (600, 400)).into_drawing_area();
+        grid.fill(&WHITE).unwrap();
+        grid
+    };
+    let app_grid = make_grid(&app_plot_png);
+    let sup_grid = make_grid(&sup_plot_png);
     let hours = 24 * days;
-    let mut app_plot = ChartBuilder::on(&app_grid)
-        .caption(
-            &format!("{} Approval, TrackID #{}", name, id),
-            ("sans-serif", 30),
-        )
-        .margin(5)
-        .set_left_and_bottom_label_area_size(40)
-        .build_cartesian_2d(0..hours + 1, 0..100)
-        .unwrap();
-    let mut sup_plot = ChartBuilder::on(&sup_grid)
-        .caption(
-            &format!("{} Support, TrackID #{}", name, id),
-            ("sans-serif", 30),
-        )
-        .margin(5)
-        .set_left_and_bottom_label_area_size(40)
-        .build_cartesian_2d(0..hours + 1, 0..100)
-        .unwrap();
+    let make_plot = |grid, title| {
+        ChartBuilder::on(grid)
+            .caption(&title, ("sans-serif", 30))
+            .margin(5)
+            .set_left_and_bottom_label_area_size(40)
+            .build_cartesian_2d(0..hours + 1, 0..100)
+            .unwrap()
+    };
+    let mut app_plot = make_plot(&app_grid, format!("{} Approval, TrackID #{}", name, id));
+    let mut sup_plot = make_plot(&sup_grid, format!("{} Support, TrackID #{}", name, id));
     let x_axis_label = format!("Hours into {}-Day Decision Period", days);
     app_plot
         .configure_mesh()
@@ -173,7 +176,6 @@ fn perbill_to_i32_percent_conversion() {
     }
 }
 
-// TODO: expose in substrate
 /// Determine the `y` value for the given `x` value.
 fn threshold(curve: &Curve, x: Perbill) -> Perbill {
     match curve {
