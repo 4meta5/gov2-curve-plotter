@@ -23,8 +23,57 @@ pub struct CurveInfo {
 
 pub type Curves = Vec<CurveInfo>;
 
-pub(crate) fn plot_curve_comparison(ty: CurveType, curves: Curves) {
-    todo!()
+fn decision_period(curves: &Curves) -> u32 {
+    let hours = curves[0].points.len();
+    for curve in curves {
+        if curve.points.len() != hours {
+            panic!("Decision Period not constant for all curves");
+        }
+    }
+    hours.try_into().unwrap()
+}
+
+/// Assumes all curves have same decision period
+pub(crate) fn plot_curves_comparison(ty: CurveType, curves: Curves) {
+    let (plot_png, plot_title, y_axis_label) = match ty {
+        CurveType::Approval => (
+            "plots/Approvals.png",
+            "Approval Requirements",
+            "% of Votes in Favor / All Votes in This Referendum",
+        ),
+        CurveType::Support => (
+            "plots/Supports.png",
+            "Support Requirements",
+            "% of Votes in This Referendum / Total Possible Turnout",
+        ),
+    };
+    let grid = BitMapBackend::new(&plot_png, (1024, 768)).into_drawing_area();
+    grid.fill(&WHITE).unwrap();
+    let hours = decision_period(&curves);
+    let mut plot = ChartBuilder::on(&grid)
+        .caption(&plot_title, ("sans-serif", 30))
+        .margin(5)
+        .set_left_and_bottom_label_area_size(40)
+        .build_cartesian_2d(0..hours, 0..100)
+        .unwrap();
+    plot.configure_mesh()
+        .y_desc(y_axis_label)
+        .x_desc(format!("Hours into {}-Day Decision Period", hours / 24))
+        .axis_desc_style(("sans-serif", 15))
+        .draw()
+        .unwrap();
+    for (i, curve) in curves.iter().enumerate() {
+        let color = Palette99::pick(i).mix(0.9);
+        plot.draw_series(LineSeries::new(curve.points.clone(), color.stroke_width(2)))
+            .unwrap()
+            .label(format!("{}, ID # {}", curve.name, curve.track_id))
+            .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], color.filled()));
+    }
+    plot.configure_series_labels()
+        .position(SeriesLabelPosition::UpperRight)
+        .border_style(&BLACK)
+        .draw()
+        .unwrap();
 }
 
 pub(crate) fn plot_track_curves(

@@ -5,7 +5,6 @@ mod curve;
 use curve::*;
 
 fn main() {
-    // graph all approval/support labeled by "name track ID"
     let (mut approval_curves, mut support_curves) = (Curves::new(), Curves::new());
     for (track_id, track) in <MoonbaseTracks as TracksInfo<Balance, BlockNumber>>::tracks() {
         let (approval_curve_points, support_curve_points) = plot_track_curves(
@@ -26,6 +25,6 @@ fn main() {
             points: support_curve_points,
         });
     }
-    // plot approval curves altogether
-    // plot support curves altogether
+    plot_curves_comparison(CurveType::Approval, approval_curves);
+    plot_curves_comparison(CurveType::Support, support_curves);
 }
