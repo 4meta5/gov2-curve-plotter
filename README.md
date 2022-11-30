@@ -1,4 +1,4 @@
-# gov2-curve-plotters
+# gov2-curve-plotter
 
 tool to visualize and compare Gov2 approval/support requirement curves
 
