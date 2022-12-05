@@ -1,3 +1,9 @@
+// TODO:
+// 1. include key_threshold_times: Vec<Perbill>
+// 2. write to csv once for all approval, support curves
+// 3. each graph should have Y range based on the min/max instead of 0 to 100
+// 4. only include the specified curves
+// 5. plot individual curve, use this function for the other functions too if possible
 use pallet_referenda::Curve;
 use plotters::prelude::*;
 use sp_arithmetic::{Rounding::*, SignedRounding::*};
@@ -84,6 +90,73 @@ fn plot_curves_comparison(ty: CurveType, curves: Curves) {
         .unwrap();
 }
 
+// TODO
+fn plot_curves(ty: CurveType, curves: Curves, write_points_to_csv: bool) {
+    todo!()
+}
+
+fn plot_curve(
+    name: String,
+    id: u16,
+    curve_ty: CurveType,
+    curve: &Curve,
+    hours: u32,
+    thresholds: Vec<Perbill>,
+    write_points_to_csv: bool,
+) -> Vec<(u32, i32)> {
+    let (plot_png, points_csv) = match curve_ty {
+        CurveType::Approval => (
+            format!("plots/{} Approval.png", name),
+            format!("points/{} Approval.csv", name),
+        ),
+        CurveType::Support => (
+            format!("plots/{} Support.png", name),
+            format!("points/{} Support.csv", name),
+        ),
+    };
+    let grid = BitMapBackend::new(&plot_png, (600, 400)).into_drawing_area();
+    grid.fill(&WHITE).unwrap();
+    let mut chart = ChartBuilder::on(&grid)
+        .caption(
+            &format!("{} Approval, TrackID #{}", name, id),
+            ("sans-serif", 30),
+        )
+        .margin(5)
+        .set_left_and_bottom_label_area_size(40)
+        // TODO: y label should be from y_min to y_max instead of 0-100
+        .build_cartesian_2d(0..hours + 1, 0..100)
+        .unwrap();
+    let x_axis_label = format!("Hours into {}-Day Decision Period", hours / 24);
+    match curve_ty {
+        CurveType::Approval => chart
+            .configure_mesh()
+            .y_desc("% of Votes in Favor / All Votes in This Referendum")
+            .x_desc(x_axis_label.clone())
+            .axis_desc_style(("sans-serif", 15))
+            .draw()
+            .unwrap(),
+        CurveType::Support => chart
+            .configure_mesh()
+            .y_desc("% of Votes in Favor / All Votes in This Referendum")
+            .x_desc(x_axis_label.clone())
+            .axis_desc_style(("sans-serif", 15))
+            .draw()
+            .unwrap(),
+    }
+    // TODO: use thresholds and highlight them on the axis when plotting
+    let curve_points =
+        (0..=hours).map(move |x| (x, threshold(curve, Perbill::from_rational(x, hours))));
+    if write_points_to_csv {
+        write_curve_points_csv(points_csv, curve_points.clone().collect());
+    }
+    let points = curve_points.map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
+    chart
+        .draw_series(LineSeries::new(points.clone(), &RED))
+        .unwrap();
+    points.collect()
+}
+
+// TODO: refactor using `fn plot_curve` and/or plot_curves
 pub(crate) fn plot_track_curves(
     name: String,
     id: u16,

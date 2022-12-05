@@ -5,6 +5,7 @@ mod curve;
 use curve::*;
 
 fn main() {
+    // TODO: if directories don't exist, make them(in the functions)
     let (mut approval_curves, mut support_curves) = (Curves::new(), Curves::new());
     for (track_id, track) in <MoonbaseTracks as TracksInfo<Balance, BlockNumber>>::tracks() {
         let (approval_curve_points, support_curve_points) = plot_track_curves(
