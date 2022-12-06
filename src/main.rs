@@ -8,14 +8,14 @@ fn main() {
     // TODO: if directories don't exist, make them(in the functions)
     let (mut approval_curves, mut support_curves) = (Curves::new(), Curves::new());
     for (track_id, track) in <MoonbaseTracks as TracksInfo<Balance, BlockNumber>>::tracks() {
-        approval_curves.push(plot_curve(
+        approval_curves.push(CurveInfo::new(
             track.name.to_string(),
             *track_id,
             CurveType::Approval,
             &track.min_approval,
             (track.decision_period / DAYS) * 24,
         ));
-        support_curves.push(plot_curve(
+        support_curves.push(CurveInfo::new(
             track.name.to_string(),
             *track_id,
             CurveType::Support,

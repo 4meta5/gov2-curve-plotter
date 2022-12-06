@@ -29,13 +29,13 @@ pub enum TimeIncrement {
 }
 
 #[derive(Clone)]
-pub struct Point {
+pub struct Point<Y> {
     pub x: u32,
-    pub y: i32,
+    pub y: Y,
 }
 
-impl From<(u32, i32)> for Point {
-    fn from(point: (u32, i32)) -> Point {
+impl From<(u32, i32)> for Point<i32> {
+    fn from(point: (u32, i32)) -> Point<i32> {
         Point {
             x: point.0,
             y: point.1,
@@ -43,26 +43,21 @@ impl From<(u32, i32)> for Point {
     }
 }
 
-pub struct Points {
-    pub coordinates: Vec<Point>,
+pub struct Points<Y> {
+    pub coordinates: Vec<Point<Y>>,
     pub x_unit: TimeIncrement,
-}
-
-pub struct ThresholdPoints {
-    pub y_min: Point,
-    pub y_max: Point,
-    pub points: Points,
 }
 
 // TODO: add threshold_points, min, max
 pub struct CurveInfo {
     pub track_id: u16,
     pub name: String,
-    pub points: Points,
+    pub points: Points<i32>,
+    // thresholds: Points, which should include y_min, y_max adapted to threshold units
 }
 
 impl CurveInfo {
-    pub fn points(&self) -> Vec<Point> {
+    pub fn points(&self) -> Vec<Point<i32>> {
         self.points.coordinates.clone()
     }
     pub fn raw_points(&self) -> Vec<(u32, i32)> {
@@ -71,12 +66,107 @@ impl CurveInfo {
             .map(|point| (point.x, point.y))
             .collect()
     }
-    // TODO: plot_curve
-    // pub fn new(
-
-    // ) -> CurveInfo {
-
-    // }
+    /// Plots input curve, writes points to csv & returns relevant curve info
+    pub fn new(name: String, id: u16, curve_ty: CurveType, curve: &Curve, hours: u32) -> Self {
+        let (plot_png, points_csv, chart_title, y_axis_label) = match curve_ty {
+            CurveType::Approval => (
+                format!("plots/{} Approval.png", name),
+                format!("points/{} Approval.csv", name),
+                format!("{} Approval, TrackID #{}", name, id),
+                "% of Votes in Favor / All Votes in This Referendum",
+            ),
+            CurveType::Support => (
+                format!("plots/{} Support.png", name),
+                format!("points/{} Support.csv", name),
+                format!("{} Support, TrackID #{}", name, id),
+                "% of Votes in This Referendum / Total Possible Turnout",
+            ),
+        };
+        let grid = BitMapBackend::new(&plot_png, (600, 400)).into_drawing_area();
+        grid.fill(&WHITE).unwrap();
+        // TODO: improve this, can check around curve points right?
+        let (mut y_min_coordinate, mut y_max_coordinate) =
+            ((0u32, Perbill::one()), (0u32, Perbill::zero()));
+        let mut curve_points: Vec<(u32, Perbill)> = (0..=hours)
+            .map(|x| {
+                let y = threshold(curve, Perbill::from_rational(x, hours));
+                if y > y_max_coordinate.1 {
+                    y_max_coordinate = (x, y);
+                }
+                if y < y_min_coordinate.1 {
+                    y_min_coordinate = (x, y);
+                }
+                (x, y)
+            })
+            .collect();
+        // TODO: do not lose precision
+        let (y_min, y_max) = (
+            perbill_to_percent_coordinate(y_min_coordinate.1),
+            perbill_to_percent_coordinate(y_max_coordinate.1),
+        );
+        let chart_y_min = if y_min > 10i32 { y_min - 10i32 } else { 0i32 };
+        let chart_y_max = if y_max < 90i32 { y_max + 10i32 } else { 100i32 };
+        let mut chart = ChartBuilder::on(&grid)
+            .caption(&chart_title, ("sans-serif", 30))
+            .margin(5)
+            .set_left_and_bottom_label_area_size(40)
+            .build_cartesian_2d(0..hours + 20, chart_y_min..chart_y_max)
+            .unwrap();
+        let x_axis_label = format!("Hours into {}-Day Decision Period", hours / 24);
+        chart
+            .configure_mesh()
+            .y_desc(y_axis_label)
+            .x_desc(x_axis_label)
+            .axis_desc_style(("sans-serif", 15))
+            .draw()
+            .unwrap();
+        let points = curve_points
+            .clone()
+            .into_iter()
+            .map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
+        chart
+            .draw_series(LineSeries::new(points.clone(), &RED))
+            .unwrap();
+        // TODO: generate in better way, not hardcoded?
+        let mut thresholds: Vec<Perbill> = (0..100).map(|x| Perbill::from_percent(x)).collect();
+        let mut rational_thresholds = vec![
+            Perbill::from_rational(999u32, 1_000), //99.9%
+            Perbill::from_rational(1u32, 1_000),   //0.1%
+            Perbill::from_rational(1u32, 10_000),  //0.01%
+        ];
+        thresholds.append(&mut rational_thresholds);
+        let mut dedup_threshold_points = Vec::new();
+        let mut threshold_points: Vec<(u32, Perbill)> = thresholds
+            .into_iter()
+            .filter_map(|y| {
+                if y > y_min_coordinate.1
+                    && y < y_max_coordinate.1
+                    && !dedup_threshold_points.contains(&(curve.delay(y) * hours))
+                {
+                    dedup_threshold_points.push(curve.delay(y) * hours);
+                    Some((curve.delay(y) * hours, y))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        curve_points.append(&mut threshold_points);
+        write_curve_points_csv(points_csv, curve_points);
+        Self {
+            track_id: id,
+            name,
+            points: Points {
+                coordinates: points.map(|x| x.into()).collect(),
+                x_unit: TimeIncrement::Hour,
+            },
+            // add min/max here after it is refined
+            // thresholds: Points {
+            //         coordinates: threshold_points.map(|x| x.into()).collect(),
+            //         x_unit: TimeIncrement::Hour,
+            //     },
+            // }
+        }
+    }
 }
 
 pub type Curves = Vec<CurveInfo>;
@@ -144,115 +234,6 @@ fn plot_curves(ty: CurveType, curves: Curves) {
         .border_style(&BLACK)
         .draw()
         .unwrap();
-}
-
-pub(crate) fn plot_curve(
-    name: String,
-    id: u16,
-    curve_ty: CurveType,
-    curve: &Curve,
-    hours: u32,
-) -> CurveInfo {
-    let (plot_png, points_csv, chart_title, y_axis_label) = match curve_ty {
-        CurveType::Approval => (
-            format!("plots/{} Approval.png", name),
-            format!("points/{} Approval.csv", name),
-            format!("{} Approval, TrackID #{}", name, id),
-            "% of Votes in Favor / All Votes in This Referendum",
-        ),
-        CurveType::Support => (
-            format!("plots/{} Support.png", name),
-            format!("points/{} Support.csv", name),
-            format!("{} Support, TrackID #{}", name, id),
-            "% of Votes in This Referendum / Total Possible Turnout",
-        ),
-    };
-    let grid = BitMapBackend::new(&plot_png, (600, 400)).into_drawing_area();
-    grid.fill(&WHITE).unwrap();
-    let (mut y_min_coordinate, mut y_max_coordinate) =
-        ((0u32, Perbill::one()), (0u32, Perbill::zero()));
-    let mut curve_points: Vec<(u32, Perbill)> = (0..=hours)
-        .map(|x| {
-            let y = threshold(curve, Perbill::from_rational(x, hours));
-            if y > y_max_coordinate.1 {
-                y_max_coordinate = (x, y);
-            }
-            if y < y_min_coordinate.1 {
-                y_min_coordinate = (x, y);
-            }
-            (x, y)
-        })
-        .collect();
-    let (y_min, y_max) = (
-        perbill_to_percent_coordinate(y_min_coordinate.1),
-        perbill_to_percent_coordinate(y_max_coordinate.1),
-    );
-    let chart_y_min = if y_min > 10i32 { y_min - 10i32 } else { 0i32 };
-    let chart_y_max = if y_max < 90i32 { y_max + 10i32 } else { 100i32 };
-    let mut chart = ChartBuilder::on(&grid)
-        .caption(&chart_title, ("sans-serif", 30))
-        .margin(5)
-        .set_left_and_bottom_label_area_size(40)
-        .build_cartesian_2d(0..hours + 20, chart_y_min..chart_y_max)
-        .unwrap();
-    let x_axis_label = format!("Hours into {}-Day Decision Period", hours / 24);
-    chart
-        .configure_mesh()
-        .y_desc(y_axis_label)
-        .x_desc(x_axis_label)
-        .axis_desc_style(("sans-serif", 15))
-        .draw()
-        .unwrap();
-    let points = curve_points
-        .clone()
-        .into_iter()
-        .map(move |(x, y)| (x, perbill_to_percent_coordinate(y)));
-    chart
-        .draw_series(LineSeries::new(points.clone(), &RED))
-        .unwrap();
-    // TODO: generate in better way, not hardcoded?
-    let mut thresholds: Vec<Perbill> = (0..100).map(|x| Perbill::from_percent(x)).collect();
-    let mut rational_thresholds = vec![
-        Perbill::from_rational(999u32, 1_000), //99.9%
-        Perbill::from_rational(1u32, 1_000),   //0.1%
-        Perbill::from_rational(1u32, 10_000),  //0.01%
-    ];
-    thresholds.append(&mut rational_thresholds);
-    let mut dedup_threshold_points = Vec::new();
-    let mut threshold_points: Vec<(u32, Perbill)> = thresholds
-        .into_iter()
-        .filter_map(|y| {
-            if y > y_min_coordinate.1
-                && y < y_max_coordinate.1
-                && !dedup_threshold_points.contains(&(curve.delay(y) * hours))
-            {
-                dedup_threshold_points.push(curve.delay(y) * hours);
-                Some((curve.delay(y) * hours, y))
-            } else {
-                None
-            }
-        })
-        .collect();
-    curve_points.append(&mut threshold_points);
-    write_curve_points_csv(points_csv, curve_points);
-    // TODO: include threshold points in return value, min/max?
-    // consider returning a struct with all of this information
-    CurveInfo {
-        track_id: id,
-        name,
-        points: Points {
-            coordinates: points.map(|x| x.into()).collect(),
-            x_unit: TimeIncrement::Hour,
-        },
-        // thresholds: ThresholdPoints {
-        //     y_min,
-        //     y_max,
-        //     points: Points {
-        //         coordinates: threshold_points.map(|x| x.into()).collect(),
-        //         x_unit: TimeIncrement::Hour,
-        //     },
-        // }
-    }
 }
 
 /// Write curve points to file
