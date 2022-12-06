@@ -17,8 +17,6 @@ fn main() {
                 CurveType::Approval,
                 &track.min_approval,
                 (track.decision_period / DAYS) * 24,
-                Vec::new(),
-                true,
             ),
         });
         support_curves.push(CurveInfo {
@@ -30,8 +28,6 @@ fn main() {
                 CurveType::Support,
                 &track.min_support,
                 (track.decision_period / DAYS) * 24,
-                Vec::new(),
-                true,
             ),
         });
     }
