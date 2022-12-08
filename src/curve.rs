@@ -29,6 +29,17 @@ pub enum Time {
     Second,
 }
 
+impl core::fmt::Display for Time {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::result::Result<(), ::std::fmt::Error> {
+        match *self {
+            Time::Day => f.write_str("Day"),
+            Time::Hour => f.write_str("Hour"),
+            Time::Minute => f.write_str("Minute"),
+            Time::Second => f.write_str("Second"),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct TimeLength {
     pub unit: Time,
@@ -50,8 +61,8 @@ impl From<(u32, Perbill)> for Point {
     }
 }
 
-/// Use this to generate the graph
 pub struct CurvePoints {
+    pub curve_ty: CurveType,
     pub id: u16,
     pub name: String,
     pub unit: Time,
@@ -66,7 +77,13 @@ pub struct CurvePoints {
 }
 
 impl CurvePoints {
-    pub fn new(id: u16, name: String, time: TimeLength, curve: &Curve) -> Self {
+    pub fn new(
+        curve_ty: CurveType,
+        id: u16,
+        name: String,
+        time: TimeLength,
+        curve: &Curve,
+    ) -> Self {
         // to dedup
         let mut all_x_values = Vec::new();
         let (mut y_min, mut y_max) = (
@@ -105,6 +122,8 @@ impl CurvePoints {
             .filter_map(|y| {
                 if y > y_min.y
                     && y < y_max.y
+                    // this is filtering out all values
+                    // if it's contained from points, consider another strategy that encourages conversion
                     && !all_x_values.contains(&(curve.delay(y) * time.length))
                 {
                     all_x_values.push(curve.delay(y) * time.length);
@@ -118,6 +137,7 @@ impl CurvePoints {
             })
             .collect();
         CurvePoints {
+            curve_ty,
             id,
             name,
             unit: time.unit,
@@ -154,26 +174,29 @@ impl CurvePoints {
     fn time_length(&self) -> u32 {
         self.coordinates.len() as u32
     }
-    pub fn write_to_csv(&self, curve_ty: CurveType) {
-        let path = match curve_ty {
-            CurveType::Approval => format!("points/{} Approval.csv", self.name),
-            CurveType::Support => format!("points/{} Support.csv", self.name),
+    // TODO: all files names need to specify time as well or useless
+    // schema {name} Approval/Support {Time::Hour}
+    pub fn write_to_csv(&self) {
+        let path = match self.curve_ty {
+            CurveType::Approval => format!("points/{} Approval {}.csv", self.name, self.unit),
+            CurveType::Support => format!("points/{} Support {}.csv", self.name, self.unit),
         };
         let mut file = File::create(path).unwrap();
+        // dedup points before writing
         for Point { x, y } in self.points() {
             file.write_all(format!("{}, {:?}\n", x, y).as_bytes())
                 .unwrap();
         }
     }
-    pub fn plot(&self, curve_ty: CurveType) {
-        let (plot_png, chart_title, y_axis_label) = match curve_ty {
+    pub fn plot(&self) {
+        let (plot_png, chart_title, y_axis_label) = match self.curve_ty {
             CurveType::Approval => (
-                format!("plots/{} Approval.png", self.name),
+                format!("plots/{} Approval {}.png", self.name, self.unit),
                 format!("{} Approval, TrackID #{}", self.name, self.id),
                 "% of Votes in Favor / All Votes in This Referendum",
             ),
             CurveType::Support => (
-                format!("plots/{} Support.png", self.name),
+                format!("plots/{} Support {}.png", self.name, self.unit),
                 format!("{} Support, TrackID #{}", self.name, self.id),
                 "% of Votes in This Referendum / Total Possible Turnout",
             ),
@@ -249,21 +272,21 @@ pub(crate) fn plot_support_curves(curves: Curves) {
 }
 
 fn plot_curves(ty: CurveType, curves: Curves) {
+    let time = decision_period_time(&curves);
     let (plot_png, plot_title, y_axis_label) = match ty {
         CurveType::Approval => (
-            "plots/Approvals.png",
+            format!("plots/Approvals {}.png", time.unit),
             "Approval Requirements",
             "% of Votes in Favor / All Votes in This Referendum",
         ),
         CurveType::Support => (
-            "plots/Supports.png",
+            format!("plots/Supports {}.png", time.unit),
             "Support Requirements",
             "% of Votes in This Referendum / Total Possible Turnout",
         ),
     };
     let grid = BitMapBackend::new(&plot_png, (1024, 768)).into_drawing_area();
     grid.fill(&WHITE).unwrap();
-    let time = decision_period_time(&curves);
     let mut plot = ChartBuilder::on(&grid)
         .caption(&plot_title, ("sans-serif", 45))
         .margin(5)
