@@ -34,8 +34,8 @@ pub struct Point<Y> {
     pub y: Y,
 }
 
-impl From<(u32, i32)> for Point<i32> {
-    fn from(point: (u32, i32)) -> Point<i32> {
+impl<T> From<(u32, T)> for Point<T> {
+    fn from(point: (u32, T)) -> Point<T> {
         Point {
             x: point.0,
             y: point.1,
@@ -48,12 +48,14 @@ pub struct Points<Y> {
     pub x_unit: TimeIncrement,
 }
 
-// TODO: add threshold_points, min, max
 pub struct CurveInfo {
     pub track_id: u16,
     pub name: String,
     pub points: Points<i32>,
-    // thresholds: Points, which should include y_min, y_max adapted to threshold units
+    // y_min, y_max
+    pub y_range: Points<Perbill>,
+    // integer thresholds
+    pub thresholds: Points<Perbill>,
 }
 
 impl CurveInfo {
@@ -159,12 +161,17 @@ impl CurveInfo {
                 coordinates: points.map(|x| x.into()).collect(),
                 x_unit: TimeIncrement::Hour,
             },
-            // add min/max here after it is refined
-            // thresholds: Points {
-            //         coordinates: threshold_points.map(|x| x.into()).collect(),
-            //         x_unit: TimeIncrement::Hour,
-            //     },
-            // }
+            y_range: Points {
+                coordinates: vec![y_min_coordinate, y_max_coordinate]
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect(),
+                x_unit: TimeIncrement::Hour,
+            },
+            thresholds: Points {
+                coordinates: threshold_points.into_iter().map(|x| x.into()).collect(),
+                x_unit: TimeIncrement::Hour,
+            },
         }
     }
 }
