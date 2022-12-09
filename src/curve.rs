@@ -344,11 +344,35 @@ fn plot_curves(ty: CurveType, curves: Curves) {
     };
     let grid = BitMapBackend::new(&plot_png, (1024, 768)).into_drawing_area();
     grid.fill(&WHITE).unwrap();
+    let (mut y_min, mut y_max) = (
+        Point {
+            x: 0u32,
+            y: Perbill::one(),
+        },
+        Point {
+            x: 0u32,
+            y: Perbill::zero(),
+        },
+    );
+    for curve in curves.iter() {
+        if curve.coordinate_threshold_max.y > y_max.y {
+            y_max = curve.coordinate_threshold_max;
+        }
+        if curve.coordinate_threshold_min.y < y_min.y {
+            y_min = curve.coordinate_threshold_min;
+        }
+    }
+    let (y_min, y_max) = (
+        perbill_to_percent_coordinate(y_min.y),
+        perbill_to_percent_coordinate(y_max.y),
+    );
+    let chart_y_min = if y_min > 10i32 { y_min - 10i32 } else { 0i32 };
+    let chart_y_max = if y_max < 90i32 { y_max + 10i32 } else { 100i32 };
     let mut plot = ChartBuilder::on(&grid)
         .caption(&plot_title, ("sans-serif", 45))
         .margin(5)
         .set_left_and_bottom_label_area_size(60)
-        .build_cartesian_2d(0..time.length, 0..100)
+        .build_cartesian_2d(0..time.length, chart_y_min..chart_y_max)
         .unwrap();
     let x_axis_label = match time.unit {
         Time::Hour => format!("Hours into {}-Day Decision Period", time.length / 24),
