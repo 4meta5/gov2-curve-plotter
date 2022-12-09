@@ -23,16 +23,15 @@ pub enum CurveType {
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Time {
-    Day,
     Hour,
     Minute,
+    #[allow(dead_code)]
     Second,
 }
 
 impl core::fmt::Display for Time {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::result::Result<(), ::std::fmt::Error> {
         match *self {
-            Time::Day => f.write_str("Day"),
             Time::Hour => f.write_str("Hour"),
             Time::Minute => f.write_str("Minute"),
             Time::Second => f.write_str("Second"),
@@ -44,6 +43,22 @@ impl core::fmt::Display for Time {
 pub struct TimeLength {
     pub unit: Time,
     pub length: u32,
+}
+
+impl TimeLength {
+    fn to_seconds(&self) -> TimeLength {
+        match self.unit {
+            Time::Hour => TimeLength {
+                unit: Time::Second,
+                length: self.length * 60 * 60,
+            },
+            Time::Minute => TimeLength {
+                unit: Time::Minute,
+                length: self.length * 60,
+            },
+            Time::Second => *self,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -61,19 +76,28 @@ impl From<(u32, Perbill)> for Point {
     }
 }
 
+#[derive(Clone)]
+pub struct Points {
+    pub time_length: TimeLength,
+    pub points: Vec<Point>,
+}
+
+/// Generated from a Curve input, see the `new` function for details
 pub struct CurvePoints {
+    /// Approval or Support curve
     pub curve_ty: CurveType,
+    /// TrackId
     pub id: u16,
+    /// Track name
     pub name: String,
-    pub unit: Time,
-    // Continuous threshold coordinates for every unit increment of decision period length
-    pub coordinates: Vec<Point>,
-    // Coordinate with lowest threshold
+    /// Per time increment thresholds
+    /// By default time increment is per hour, but can do per minute, second
+    pub coordinates: Points,
     pub coordinate_threshold_min: Point,
-    // Coordinate with highest threshold
     pub coordinate_threshold_max: Point,
-    // Times for requested explicit thresholds
-    pub thresholds: Vec<Point>,
+    /// Hardcoded human-readable threshold points i.e. 99.9%, 0.1%, 50%
+    /// By default per-second thresholds for hardcoded thresholds
+    pub thresholds: Points,
 }
 
 impl CurvePoints {
@@ -84,8 +108,6 @@ impl CurvePoints {
         time: TimeLength,
         curve: &Curve,
     ) -> Self {
-        // to dedup
-        let mut all_x_values = Vec::new();
         let (mut y_min, mut y_max) = (
             Point {
                 x: 0u32,
@@ -105,30 +127,27 @@ impl CurvePoints {
                 if y < y_min.y {
                     y_min = Point { x, y };
                 }
-                all_x_values.push(x);
                 Point { x, y }
             })
             .collect();
         // TODO: generate in better way, not hardcoded?
-        let mut all_thresholds: Vec<Perbill> = (0..100).map(|x| Perbill::from_percent(x)).collect();
+        let mut thresholds: Vec<Perbill> = (0..100).map(|x| Perbill::from_percent(x)).collect();
         let mut rational_thresholds = vec![
             Perbill::from_rational(999u32, 1_000), //99.9%
             Perbill::from_rational(1u32, 1_000),   //0.1%
             Perbill::from_rational(1u32, 10_000),  //0.01%
         ];
-        all_thresholds.append(&mut rational_thresholds);
-        let thresholds: Vec<Point> = all_thresholds
+        thresholds.append(&mut rational_thresholds);
+        // always use second for the thresholds
+        // TODO: save this somewhere for thresholds or write it to the file
+        let seconds_length_is_thresholds_length = time.to_seconds();
+        let thresholds: Vec<Point> = thresholds
             .into_iter()
             .filter_map(|y| {
-                if y > y_min.y
-                    && y < y_max.y
-                    // this is filtering out all values
-                    // if it's contained from points, consider another strategy that encourages conversion
-                    && !all_x_values.contains(&(curve.delay(y) * time.length))
-                {
-                    all_x_values.push(curve.delay(y) * time.length);
+                if y > y_min.y && y < y_max.y {
+                    // thresholds are always in points
                     Some(Point {
-                        x: curve.delay(y) * time.length,
+                        x: curve.delay(y) * seconds_length_is_thresholds_length.length,
                         y,
                     })
                 } else {
@@ -140,63 +159,93 @@ impl CurvePoints {
             curve_ty,
             id,
             name,
-            unit: time.unit,
-            coordinates,
+            coordinates: Points {
+                time_length: time,
+                points: coordinates,
+            },
             coordinate_threshold_min: y_min,
             coordinate_threshold_max: y_max,
-            thresholds,
+            thresholds: Points {
+                time_length: seconds_length_is_thresholds_length,
+                points: thresholds,
+            },
         }
     }
     /// Returns all points (for writing to csv)
     fn points(&self) -> Vec<Point> {
-        let points: Vec<Point> = self
-            .coordinates
-            .clone()
-            .into_iter()
-            .chain(vec![self.coordinate_threshold_min, self.coordinate_threshold_max].into_iter())
-            .chain(self.thresholds.clone().into_iter())
-            .collect();
-        assert_eq!(
-            self.coordinates.len() + 2 + self.thresholds.len(),
-            points.len(),
-            "chain created vec of inconsistent len"
-        );
-        points
+        self.coordinates.points.clone()
     }
     /// Return rounded points for plotting purposes
     fn rounded_points(&self) -> Vec<(u32, i32)> {
-        self.coordinates
+        self.points()
             .iter()
             .map(|Point { x, y }| (*x, perbill_to_percent_coordinate(*y)))
             .collect()
     }
-    /// Implied decision period time length
-    fn time_length(&self) -> u32 {
-        self.coordinates.len() as u32
-    }
-    // TODO: all files names need to specify time as well or useless
-    // schema {name} Approval/Support {Time::Hour}
+    // Writes coordinates to CSV
+    // file name uniqueness schema: {name} Approval/Support {Time::Hour}
     pub fn write_to_csv(&self) {
-        let path = match self.curve_ty {
-            CurveType::Approval => format!("points/{} Approval {}.csv", self.name, self.unit),
-            CurveType::Support => format!("points/{} Support {}.csv", self.name, self.unit),
+        let (coordinate_path, threshold_path) = match self.curve_ty {
+            CurveType::Approval => (
+                format!(
+                    "points/{} Approval {}.csv",
+                    self.name, self.coordinates.time_length.unit
+                ),
+                format!(
+                    "points/{} Approval Thresholds{}.csv",
+                    self.name, self.thresholds.time_length.unit
+                ),
+            ),
+            CurveType::Support => (
+                format!(
+                    "points/{} Support {}.csv",
+                    self.name, self.coordinates.time_length.unit
+                ),
+                format!(
+                    "points/{} Support Thresholds{}.csv",
+                    self.name, self.thresholds.time_length.unit
+                ),
+            ),
         };
-        let mut file = File::create(path).unwrap();
-        // dedup points before writing
-        for Point { x, y } in self.points() {
-            file.write_all(format!("{}, {:?}\n", x, y).as_bytes())
+        let (mut coordinate_file, mut threshold_file) = (
+            File::create(coordinate_path).unwrap(),
+            File::create(threshold_path).unwrap(),
+        );
+        for Point { x, y } in &self.coordinates.points {
+            coordinate_file
+                .write_all(format!("{}, {:?}\n", x, y).as_bytes())
+                .unwrap();
+        }
+        threshold_file
+            .write_all(
+                format!(
+                    "TOTAL SECONDS (X): {}\n",
+                    self.thresholds.time_length.length
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        for Point { x, y } in &self.thresholds.points {
+            threshold_file
+                .write_all(format!("{}, {:?}\n", x, y).as_bytes())
                 .unwrap();
         }
     }
     pub fn plot(&self) {
         let (plot_png, chart_title, y_axis_label) = match self.curve_ty {
             CurveType::Approval => (
-                format!("plots/{} Approval {}.png", self.name, self.unit),
+                format!(
+                    "plots/{} Approval {}.png",
+                    self.name, self.coordinates.time_length.unit
+                ),
                 format!("{} Approval, TrackID #{}", self.name, self.id),
                 "% of Votes in Favor / All Votes in This Referendum",
             ),
             CurveType::Support => (
-                format!("plots/{} Support {}.png", self.name, self.unit),
+                format!(
+                    "plots/{} Support {}.png",
+                    self.name, self.coordinates.time_length.unit
+                ),
                 format!("{} Support, TrackID #{}", self.name, self.id),
                 "% of Votes in This Referendum / Total Possible Turnout",
             ),
@@ -214,18 +263,23 @@ impl CurvePoints {
             .caption(&chart_title, ("sans-serif", 30))
             .margin(5)
             .set_left_and_bottom_label_area_size(40)
-            .build_cartesian_2d(0..self.time_length() + 20, chart_y_min..chart_y_max)
+            .build_cartesian_2d(
+                0..self.coordinates.time_length.length + 20,
+                chart_y_min..chart_y_max,
+            )
             .unwrap();
-        let x_axis_label = match self.unit {
-            Time::Day => format!("Days into {}-Day Decision Period", self.time_length()),
-            Time::Hour => format!("Hours into {}-Day Decision Period", self.time_length() / 24),
+        let x_axis_label = match self.coordinates.time_length.unit {
+            Time::Hour => format!(
+                "Hours into {}-Day Decision Period",
+                self.coordinates.time_length.length / 24
+            ),
             Time::Minute => format!(
                 "Minutes into {}-Day Decision Period",
-                (self.time_length() / 24 * 60)
+                (self.coordinates.time_length.length / 24 * 60)
             ),
             Time::Second => format!(
                 "Seconds into {}-Day Decision Period",
-                (self.time_length() / (24 * 60 * 60))
+                (self.coordinates.time_length.length / (24 * 60 * 60))
             ),
         };
         chart
@@ -252,9 +306,12 @@ fn decision_period_time(curves: &Curves) -> TimeLength {
             panic!("Decision Period not constant for all curves");
         }
         if let Some(t) = time {
-            assert!(t == curve.unit, "All curves must have consistent x units");
+            assert!(
+                t == curve.coordinates.time_length.unit,
+                "All curves must have consistent x units"
+            );
         } else {
-            time = Some(curve.unit);
+            time = Some(curve.coordinates.time_length.unit);
         }
     }
     TimeLength {
@@ -294,7 +351,6 @@ fn plot_curves(ty: CurveType, curves: Curves) {
         .build_cartesian_2d(0..time.length, 0..100)
         .unwrap();
     let x_axis_label = match time.unit {
-        Time::Day => format!("Days into {}-Day Decision Period", time.length),
         Time::Hour => format!("Hours into {}-Day Decision Period", time.length / 24),
         Time::Minute => format!(
             "Minutes into {}-Day Decision Period",
