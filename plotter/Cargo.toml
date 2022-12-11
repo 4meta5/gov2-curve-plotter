@@ -6,12 +6,7 @@ edition = "2021"
 license = "GPL-3.0-only"
 version = "0.1.0"
 
-[[bin]]
-name = "gov2-curve-plotter"
-path = "src/main.rs"
-
 [dependencies]
-moonbase-runtime = { git = "https://github.com/purestake/moonbeam", branch = "master" }
 pallet-referenda = { git = "https://github.com/purestake/substrate", branch = "moonbeam-polkadot-v0.9.32" }
 plotters = "0.3"
 sp-arithmetic = { git = "https://github.com/purestake/substrate", branch = "moonbeam-polkadot-v0.9.32" }

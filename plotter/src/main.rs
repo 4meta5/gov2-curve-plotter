@@ -1,9 +1,6 @@
-use moonbase_runtime::{governance::TracksInfo as MoonbaseTracks, Balance, BlockNumber, DAYS};
-use pallet_referenda::TracksInfo;
 use std::fs;
 
-mod curve;
-use curve::*;
+use gov2_curve_plotter::*;
 
 // Tmp config for all curves
 const WRITE_TO_CSV: bool = true;
@@ -22,25 +19,25 @@ fn decision_period(unit: Time, length: u32) -> TimeLength {
 
 fn main() {
     if OVERWRITE_PREVIOUS_DATA_ON_RUN {
-        fs::remove_dir_all("plots").ok();
-        fs::remove_dir_all("points").ok();
-        fs::create_dir_all("plots").expect("plots/");
-        fs::create_dir_all("points").expect("points/");
+        fs::remove_dir_all("data").ok();
+        fs::create_dir_all("data").expect("data/");
+        fs::create_dir_all("data/points").expect("data/points/");
+        fs::create_dir_all("data/plots").expect("data/plots/");
     }
     let (mut approval_curves, mut support_curves) = (Curves::new(), Curves::new());
-    for (track_id, track) in <MoonbaseTracks as TracksInfo<Balance, BlockNumber>>::tracks() {
+    for (track_id, track) in TRACKS_DATA {
         let time = decision_period(Time::Hour, track.decision_period);
         let (approval_curve, support_curve) = (
             CurvePoints::new(
                 CurveType::Approval,
-                *track_id,
+                track_id,
                 track.name.to_string(),
                 time,
                 &track.min_approval,
             ),
             CurvePoints::new(
                 CurveType::Support,
-                *track_id,
+                track_id,
                 track.name.to_string(),
                 time,
                 &track.min_support,

@@ -188,21 +188,21 @@ impl CurvePoints {
         let (coordinate_path, threshold_path) = match self.curve_ty {
             CurveType::Approval => (
                 format!(
-                    "points/{} Approval {}.csv",
+                    "data/points/{} Approval {}.csv",
                     self.name, self.coordinates.time_length.unit
                 ),
                 format!(
-                    "points/{} Approval Thresholds{}.csv",
+                    "data/points/{} Approval Thresholds{}.csv",
                     self.name, self.thresholds.time_length.unit
                 ),
             ),
             CurveType::Support => (
                 format!(
-                    "points/{} Support {}.csv",
+                    "data/points/{} Support {}.csv",
                     self.name, self.coordinates.time_length.unit
                 ),
                 format!(
-                    "points/{} Support Thresholds{}.csv",
+                    "data/points/{} Support Thresholds{}.csv",
                     self.name, self.thresholds.time_length.unit
                 ),
             ),
@@ -235,7 +235,7 @@ impl CurvePoints {
         let (plot_png, chart_title, y_axis_label) = match self.curve_ty {
             CurveType::Approval => (
                 format!(
-                    "plots/{} Approval {}.png",
+                    "data/plots/{} Approval {}.png",
                     self.name, self.coordinates.time_length.unit
                 ),
                 format!("{} Approval, TrackID #{}", self.name, self.id),
@@ -243,7 +243,7 @@ impl CurvePoints {
             ),
             CurveType::Support => (
                 format!(
-                    "plots/{} Support {}.png",
+                    "data/plots/{} Support {}.png",
                     self.name, self.coordinates.time_length.unit
                 ),
                 format!("{} Support, TrackID #{}", self.name, self.id),
@@ -320,11 +320,11 @@ fn decision_period_time(curves: &Curves) -> TimeLength {
     }
 }
 
-pub(crate) fn plot_approval_curves(curves: Curves) {
+pub fn plot_approval_curves(curves: Curves) {
     plot_curves(CurveType::Approval, curves)
 }
 
-pub(crate) fn plot_support_curves(curves: Curves) {
+pub fn plot_support_curves(curves: Curves) {
     plot_curves(CurveType::Support, curves)
 }
 
@@ -332,12 +332,12 @@ fn plot_curves(ty: CurveType, curves: Curves) {
     let time = decision_period_time(&curves);
     let (plot_png, plot_title, y_axis_label) = match ty {
         CurveType::Approval => (
-            format!("plots/Approvals {}.png", time.unit),
+            format!("data/plots/Approvals {}.png", time.unit),
             "Approval Requirements",
             "% of Votes in Favor / All Votes in This Referendum",
         ),
         CurveType::Support => (
-            format!("plots/Supports {}.png", time.unit),
+            format!("data/plots/Supports {}.png", time.unit),
             "Support Requirements",
             "% of Votes in This Referendum / Total Possible Turnout",
         ),
