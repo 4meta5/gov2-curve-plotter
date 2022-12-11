@@ -53,7 +53,7 @@ impl TimeLength {
                 length: self.length * 60 * 60,
             },
             Time::Minute => TimeLength {
-                unit: Time::Minute,
+                unit: Time::Second,
                 length: self.length * 60,
             },
             Time::Second => *self,
