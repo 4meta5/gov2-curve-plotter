@@ -1,9 +1,3 @@
-// TODO:
-// 1. include key_threshold_times: Vec<Perbill>
-// 2. write to csv once for all approval, support curves
-// 3. each graph should have Y range based on the min/max instead of 0 to 100
-// 4. only include the specified curves
-// 5. plot individual curve, use this function for the other functions too if possible
 use pallet_referenda::Curve;
 use plotters::prelude::*;
 use sp_arithmetic::{Rounding::*, SignedRounding::*};
@@ -216,15 +210,6 @@ impl CurvePoints {
                 .write_all(format!("{}, {:?}\n", x, y).as_bytes())
                 .unwrap();
         }
-        threshold_file
-            .write_all(
-                format!(
-                    "TOTAL SECONDS (X): {}\n",
-                    self.thresholds.time_length.length
-                )
-                .as_bytes(),
-            )
-            .unwrap();
         for Point { x, y } in &self.thresholds.points {
             threshold_file
                 .write_all(format!("{}, {:?}\n", x, y).as_bytes())
