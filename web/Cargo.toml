@@ -1,0 +1,12 @@
+[package]
+name = "gov2-curve-plotter-web"
+version = "0.0.1"
+edition = "2021"
+authors = ["Amar Singh <asingchrony@protonmail.com>"]
+
+[dependencies]
+plotter = { package = "gov2-curve-plotter", path = "../plotter" }
+
+actix-web = { version = "4.0.1", features = ["openssl"] }
+actix-files = "0.6.1"
+openssl = { version = "0.10", features = ["v110"] }
